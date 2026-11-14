@@ -1,0 +1,5 @@
+node_modules/
+.DS_Store
+*.log
+# Never commit a real production Firebase config / secrets.
+# The demo config in docs/firebase-config.js ships as a placeholder on purpose.

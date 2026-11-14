@@ -1,0 +1,1 @@
+{"description":"PantryPilot — hybrid AI food-rescue planner built with Firebase AI Logic (Gemini Nano on-device + Gemini cloud fallback). #BuildHybridAI 2026 entry, Web (Chrome) platform.","license":"MIT","name":"pantrypilot","private":true,"scripts":{"serve":"python3 -m http.server 8931 --directory docs","test":"node --test test/engine.test.js"},"version":"1.0.0"}

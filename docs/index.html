@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PantryPilot — Hybrid AI Food Rescue Planner</title>
+<meta name="description" content="PantryPilot tracks what's about to expire in your kitchen and plans tonight's dinner with Firebase AI Logic hybrid inference: Gemini Nano on-device first, cloud Gemini as fallback.">
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🥑</text></svg>">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand"><span class="brand-emoji">🥑</span> PantryPilot</div>
+  <div class="topbar-right">
+    <span id="deviceStatus" class="pill pill-neutral">On-device model: checking…</span>
+    <span id="engineStatus" class="pill pill-local">Local mode</span>
+  </div>
+</header>
+
+<section class="hero">
+  <h1>Your pantry, thought through <span class="grad">on-device first</span>.</h1>
+  <p class="hero-sub">
+    PantryPilot watches expiry dates, ranks what's about to be wasted, and turns it into
+    tonight's dinner — planned by <strong>Firebase AI Logic hybrid inference</strong>:
+    Gemini Nano answers on your device when it can (fast, private, offline, free),
+    and the same SDK falls back to cloud Gemini everywhere else.
+  </p>
+  <div class="stats">
+    <div class="stat"><div class="stat-num" id="statItems">0</div><div class="stat-label">items tracked</div></div>
+    <div class="stat"><div class="stat-num warn" id="statRisk">0</div><div class="stat-label">in the rescue queue</div></div>
+    <div class="stat"><div class="stat-num danger" id="statMoney">Rp0</div><div class="stat-label">of food at risk this week</div></div>
+  </div>
+</section>
+
+<main class="grid">
+
+  <section class="card">
+    <h2>🧺 My pantry</h2>
+    <form id="addForm" class="add-form">
+      <input id="fName" type="text" placeholder="Item name (e.g. chicken breast)" required maxlength="60">
+      <div class="row">
+        <input id="fQty" type="number" placeholder="Qty" min="0" step="any" value="1" required>
+        <input id="fUnit" type="text" placeholder="Unit" value="pcs" maxlength="10">
+      </div>
+      <div class="row">
+        <select id="fCategory">
+          <option value="produce">Produce</option>
+          <option value="dairy">Dairy</option>
+          <option value="meat">Meat</option>
+          <option value="seafood">Seafood</option>
+          <option value="bakery">Bakery</option>
+          <option value="cooked">Cooked / leftovers</option>
+          <option value="pantry">Pantry staple</option>
+          <option value="frozen">Frozen</option>
+          <option value="drink">Drink</option>
+          <option value="other">Other</option>
+        </select>
+        <input id="fPrice" type="number" placeholder="Price (Rp)" min="0" step="500">
+      </div>
+      <label class="date-label">Expires on
+        <input id="fExpiry" type="date" required>
+      </label>
+      <button type="submit" class="btn btn-primary">Add item</button>
+    </form>
+    <ul id="inventoryList" class="inventory"></ul>
+    <div class="sync-row">
+      <button id="syncBtn" class="btn btn-ghost" disabled>☁️ Sync pantry to Firestore</button>
+      <span id="syncNote" class="hint">Cloud sync activates when Firebase is configured.</span>
+    </div>
+  </section>
+
+  <div class="right-col">
+    <section class="card">
+      <h2>🚨 Rescue queue <span class="hint" id="queueHint"></span></h2>
+      <ul id="queueList" class="queue"></ul>
+      <p id="queueEmpty" class="empty" hidden>Nothing urgent — everything in your pantry has more than a week left. 🎉</p>
+    </section>
+
+    <section class="card plan-card">
+      <h2>🍳 Plan my rescue</h2>
+      <p class="hint">
+        One prompt, two possible brains. Watch the badge after you run it: the plan is served
+        by whichever model the hybrid SDK routed to.
+      </p>
+      <div class="mode-row" role="radiogroup" aria-label="Inference mode">
+        <label><input type="radio" name="mode" value="PREFER_ON_DEVICE" checked> Hybrid auto <span class="hint">(device → cloud)</span></label>
+        <label><input type="radio" name="mode" value="ONLY_ON_DEVICE"> On-device only <span class="hint">(private)</span></label>
+        <label><input type="radio" name="mode" value="PREFER_IN_CLOUD"> Cloud first</label>
+      </div>
+      <button id="planBtn" class="btn btn-primary btn-big">Plan tonight's rescue dinner</button>
+      <div id="planProgress" class="progress" hidden></div>
+      <div id="planResult" class="plan-result" hidden>
+        <div class="plan-meta">
+          <span id="planSource" class="pill"></span>
+          <span id="planLatency" class="hint"></span>
+        </div>
+        <h3 id="planTitle"></h3>
+        <p id="planSummary"></p>
+        <ol id="planSteps"></ol>
+        <div class="plan-cols">
+          <div><strong>Uses:</strong> <span id="planUses"></span></div>
+          <div><strong>Missing:</strong> <span id="planMissing"></span></div>
+        </div>
+        <button id="addMissingBtn" class="btn btn-ghost" hidden>➕ Add missing to shopping list</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>🛒 Shopping list</h2>
+      <ul id="shopList" class="shop"></ul>
+      <p id="shopEmpty" class="empty">Empty — your next rescue plan will fill this in.</p>
+    </section>
+  </div>
+</main>
+
+<footer>
+  <p>
+    Built with <strong>Firebase AI Logic</strong> (hybrid inference: Gemini Nano on-device + Gemini cloud),
+    App Check, Firestore, Authentication and Remote Config — plus a deterministic rescue engine that
+    keeps the app fully useful with no AI at all. When Firebase is not configured, AI plans are
+    <em>local previews</em> and are labelled as such. No pantry data leaves this browser in local mode.
+  </p>
+  <p class="hint">#BuildHybridAI 2026 · Web (Chrome) platform · MIT licensed</p>
+</footer>
+
+<script src="firebase-config.js"></script>
+<script src="engine.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
