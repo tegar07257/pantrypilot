@@ -156,22 +156,42 @@ function planSchema(Schema) {
  * This function is only invoked from the button click handler, which
  * satisfies the user-activation requirement for device init.
  */
+// Cloud model name. NOTE (2026-11-15): the API retired
+// gemini-2.5-flash for new users (404 "no longer available to new
+// users — use models/gemini-3.8-flash"), so 3.8 Flash it is.
+const CLOUD_MODEL = "gemini-3.8-flash";
+
 async function getHybridModel(modeName, onProgress) {
   const { aiMod } = state.mods;
   const { InferenceMode } = aiMod;
   const mode = InferenceMode[modeName] || InferenceMode.PREFER_ON_DEVICE;
   const schema = planSchema(aiMod.Schema);
+  const cloudGenerationConfig = {
+    responseMimeType: "application/json",
+    responseSchema: schema,
+    temperature: 0.6,
+    maxOutputTokens: 1024
+  };
+
+  // "Cloud first" uses a plain cloud-only model — no hybrid routing —
+  // so nothing on the (possibly absent or flag-disabled) on-device
+  // path can block a cloud answer. Verified need 2026-11-15: the
+  // hybrid PREFER_IN_CLOUD route died with "The feature flag gating
+  // model execution was disabled" in a browser without a usable
+  // Prompt API, before any network call.
+  if (modeName === "PREFER_IN_CLOUD") {
+    const cloudModel = aiMod.getGenerativeModel(state.ai, {
+      model: CLOUD_MODEL,
+      generationConfig: cloudGenerationConfig
+    });
+    return { model: cloudModel, sourceOverride: "cloud" };
+  }
 
   const model = aiMod.getGenerativeModel(state.ai, {
     mode,
     inCloudParams: {
-      model: "gemini-2.5-flash",
-      generationConfig: {
-        responseMimeType: "application/json",
-        responseSchema: schema,
-        temperature: 0.6,
-        maxOutputTokens: 1024
-      }
+      model: CLOUD_MODEL,
+      generationConfig: cloudGenerationConfig
     },
     onDeviceParams: {
       promptOptions: { responseConstraint: schema }
@@ -192,7 +212,7 @@ async function getHybridModel(modeName, onProgress) {
     }
     state.deviceModelReady = true;
   }
-  return model;
+  return { model, sourceOverride: null };
 }
 
 function extractSource(result) {
@@ -216,7 +236,7 @@ function extractSource(result) {
  */
 export async function planWithHybridAI(prompt, modeName, onProgress) {
   if (!state.configured) throw new Error("Firebase AI Logic is not configured.");
-  const model = await getHybridModel(modeName, onProgress);
+  const { model, sourceOverride } = await getHybridModel(modeName, onProgress);
   const t0 = performance.now();
   const result = await model.generateContent(prompt);
   const latencyMs = Math.round(performance.now() - t0);
@@ -231,7 +251,7 @@ export async function planWithHybridAI(prompt, modeName, onProgress) {
     plan = JSON.parse(text.slice(start, end + 1));
   }
   plan.source = "firebase-ai-logic";
-  return { plan, source: extractSource(result), latencyMs };
+  return { plan, source: sourceOverride || extractSource(result), latencyMs };
 }
 
 /** Check whether Chrome's on-device model is reachable at all. */
