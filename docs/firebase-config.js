@@ -16,5 +16,5 @@ window.PANTRYPILOT_FIREBASE_CONFIG = {
   // Enterprise) site key. Site keys are public identifiers and safe
   // to commit; the matching secret lives only in the Firebase
   // console. No debug token is ever committed to this repo.
-  appCheckSiteKey: ""
+  appCheckSiteKey: "6Leq0CAuAAAAAKbhMz__GhVDQNqMpCsIt6Uh46lp"
 };
