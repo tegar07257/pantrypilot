@@ -239,27 +239,40 @@ export async function planWithHybridAI(prompt, modeName, onProgress) {
   const { model, sourceOverride } = await getHybridModel(modeName, onProgress);
   const t0 = performance.now();
   // The free-tier cloud model can return transient 5xx "high demand"
-  // spikes (seen live 2026-11-15 on gemini-3.8-flash) or hang without
-  // answering at all (also seen live 2026-11-15, 9+ minutes). Bound
-  // every attempt with a timeout and retry transient failures a few
-  // times with backoff before the UI falls back to local preview.
-  const ATTEMPT_TIMEOUT_MS = 45000;
+  // spikes (seen live 2026-11-15 on gemini-3.8-flash), hang without
+  // answering at all (also seen live 2026-11-15, 9+ minutes), or simply
+  // answer slowly: two live tests on 2026-11-15 died at a 45s deadline
+  // while the model was still working. Bound every attempt with a
+  // generous 150s timeout so a slow-but-alive call can finish, and
+  // retry transient failures with backoff — but retry a timeout at
+  // most once (two slow attempts is the ceiling, not three stacked
+  // 150s waits) before the UI falls back to local preview.
+  const ATTEMPT_TIMEOUT_MS = 150000;
   const withTimeout = (promise, ms) =>
     Promise.race([
       promise,
       new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Model call timed out after 45s (deadline)")), ms)
+        setTimeout(
+          () => reject(new Error(`Model call timed out after ${ms / 1000}s (deadline)`)),
+          ms
+        )
       ),
     ]);
   let result = null;
+  let timeouts = 0;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       result = await withTimeout(model.generateContent(prompt), ATTEMPT_TIMEOUT_MS);
       break;
     } catch (e) {
       const msg = String(e && e.message ? e.message : e);
-      const transient = /\b(500|502|503|504)\b/.test(msg) || /high demand|overloaded|try again later|timed out|deadline/i.test(msg);
-      if (!transient || attempt === 2) throw e;
+      const isTimeout = /timed out|deadline/i.test(msg);
+      if (isTimeout) timeouts++;
+      const transient =
+        /\b(500|502|503|504)\b/.test(msg) ||
+        /high demand|overloaded|try again later/i.test(msg) ||
+        isTimeout;
+      if (!transient || attempt === 2 || (isTimeout && timeouts > 1)) throw e;
       await new Promise((r) => setTimeout(r, attempt === 0 ? 2500 : 6000));
     }
   }
