@@ -12,8 +12,9 @@ window.PANTRYPILOT_FIREBASE_CONFIG = {
   storageBucket: "pantrypilot-27f6e.firebasestorage.app",
   messagingSenderId: "161238636585",
   appId: "1:161238636585:web:9082c532da69b4d0d16438",
-  // Optional: reCAPTCHA v3 site key for App Check in production.
-  // Leave empty for the submission build — the App Check DEBUG token
-  // flow is used instead (explicitly accepted by the hackathon rules).
+  // App Check provider: Google Cloud Fraud Defense (reCAPTCHA
+  // Enterprise) site key. Site keys are public identifiers and safe
+  // to commit; the matching secret lives only in the Firebase
+  // console. No debug token is ever committed to this repo.
   appCheckSiteKey: ""
 };

@@ -17,9 +17,10 @@
  * on-device model gets the same schema as a `responseConstraint`.
  *
  * Also wired here (all real, all optional-at-runtime):
- *   - App Check (debug-token flow for the submission build — the
- *     hackathon rules explicitly accept debug tokens; a reCAPTCHA v3
- *     provider is used automatically when a site key is configured)
+ *   - App Check (Google Cloud Fraud Defense / reCAPTCHA Enterprise
+ *     provider, active when a site key is configured in
+ *     firebase-config.js; site keys are public, the secret lives only
+ *     in the Firebase console — no debug token is ever committed)
  *   - Authentication (anonymous sign-in) + Firestore pantry sync
  *   - Remote Config (rescue threshold + default inference mode,
  *     changeable without redeploying)
@@ -78,23 +79,21 @@ export async function initHybridAI(onStatus) {
   state.app = appMod.initializeApp(cfg);
 
   // --- App Check -----------------------------------------------------
-  // Submission build: debug token flow (accepted by the hackathon
-  // rules). The debug token printed in the browser console must be
-  // registered once in Firebase console > App Check > Manage debug
-  // tokens. With a real reCAPTCHA site key we use the real provider.
+  // Provider: Google Cloud Fraud Defense (reCAPTCHA Enterprise).
+  // Firebase no longer accepts new reCAPTCHA Classic registrations,
+  // and a debug token must never be committed to a public repo (one
+  // was, briefly, on 2026-11-15 — it was revoked in the console the
+  // same morning; see git history). The site key in the config is a
+  // public identifier; the secret key exists only in the console.
   try {
     if (cfg.appCheckSiteKey) {
       appCheckMod.initializeAppCheck(state.app, {
-        provider: new appCheckMod.ReCaptchaV3Provider(cfg.appCheckSiteKey),
+        provider: new appCheckMod.ReCaptchaEnterpriseProvider(cfg.appCheckSiteKey),
         isTokenAutoRefreshEnabled: true
       });
+      onStatus && onStatus("App Check: Fraud Defense (reCAPTCHA Enterprise) provider active.");
     } else {
-      self.FIREBASE_APPCHECK_DEBUG_TOKEN = "fcc1ce5b-27d4-4444-8560-97ef78e04ddf";
-      appCheckMod.initializeAppCheck(state.app, {
-        provider: new appCheckMod.ReCaptchaV3Provider("pantrypilot-debug-placeholder"),
-        isTokenAutoRefreshEnabled: true
-      });
-      onStatus && onStatus("App Check: fixed debug token mode (token in code, registered in Firebase console for this demo project).");
+      onStatus && onStatus("App Check: not initialized (no provider site key configured).");
     }
   } catch (e) {
     onStatus && onStatus("App Check init skipped: " + e.message);
