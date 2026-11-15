@@ -71,9 +71,10 @@ sync), `firebase/remote-config` (`fetchAndActivate`, `rescue_threshold_days`,
 
 ## Honesty: what is live vs. local preview
 
-This repository ships with a **placeholder** Firebase config
-(`docs/firebase-config.js`), because a config must belong to the person running the
-demo. In that state the app runs in **local mode**:
+This submission build ships wired to a live demo Firebase project
+(`pantrypilot-27f6e`, Spark/no-cost plan) in `docs/firebase-config.js`, so the
+hosted demo runs the real hybrid path. If you fork the repo and blank the
+config back to placeholders, the app runs in **local mode**:
 
 - ✅ Fully live: inventory, rescue engine, risk scores, money-at-risk, shopping list,
   and a **deterministic local preview plan** — always badged *"Local preview"*.
@@ -129,7 +130,7 @@ docs/
   engine.js           deterministic rescue engine (browser + Node, unit-tested)
   app.js              UI glue, state, honest fallback labelling
   hybrid-ai.js        Firebase AI Logic hybrid inference + App Check/Auth/Firestore/RC
-  firebase-config.js  placeholder config — paste your own project's config here
+  firebase-config.js  live demo project config (fork: paste your own project's)
 test/
   engine.test.js      node:test suite for the engine (9 tests)
 ```
