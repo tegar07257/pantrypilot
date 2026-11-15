@@ -148,9 +148,14 @@ function planSchema(Schema) {
 
 /**
  * Build the hybrid GenerativeModel for a given mode and initialize
- * the on-device model. initializeDeviceModel() MUST be called after
- * a user interaction (this function is only invoked from the button
- * click handler) and before generateContent().
+ * the on-device model when the SDK exposes that path.
+ * initializeDeviceModel() is only present where on-device inference
+ * is supported (Chrome on desktop, Prompt API); on other browsers
+ * (e.g. Chrome on Android) the method is absent and generateContent()
+ * performs the cloud fallback itself for the PREFER_* modes — so the
+ * call is guarded and its absence/failure never blocks a cloud plan.
+ * This function is only invoked from the button click handler, which
+ * satisfies the user-activation requirement for device init.
  */
 async function getHybridModel(modeName, onProgress) {
   const { aiMod } = state.mods;
@@ -174,10 +179,18 @@ async function getHybridModel(modeName, onProgress) {
     }
   });
 
-  if (!state.deviceModelReady) {
-    await model.initializeDeviceModel((val) => {
-      onProgress && onProgress(Math.round(val * 100));
-    });
+  const wantsDevice = modeName !== "PREFER_IN_CLOUD" && modeName !== "ONLY_IN_CLOUD";
+  if (wantsDevice && !state.deviceModelReady && typeof model.initializeDeviceModel === "function") {
+    try {
+      await model.initializeDeviceModel((val) => {
+        onProgress && onProgress(Math.round(val * 100));
+      });
+    } catch (e) {
+      // On-device model unavailable (unsupported platform or not yet
+      // downloaded): PREFER_ON_DEVICE falls back to the cloud model
+      // inside generateContent(); ONLY_ON_DEVICE surfaces its own
+      // error there. Never let device init block the plan request.
+    }
     state.deviceModelReady = true;
   }
   return model;
