@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PantryPilot — AI pipeline diagnostics</title>
+<style>
+  body { font-family: ui-monospace, Menlo, Consolas, monospace; margin: 16px; background: #111; color: #ddd; }
+  h1 { font-size: 16px; }
+  p { font-size: 12px; color: #999; max-width: 70ch; }
+  pre { white-space: pre-wrap; word-break: break-word; background: #000; border: 1px solid #333;
+        padding: 12px; font-size: 12px; line-height: 1.5; min-height: 40vh; }
+</style>
+</head>
+<body>
+<h1>PantryPilot — AI pipeline diagnostics</h1>
+<p>
+  Auto-runs on load. Each stage of the Firebase AI Logic request pipeline is
+  timed separately, with its own timeout, to isolate where a
+  <code>generateContent()</code> call hangs: app init + auth, the App Check
+  token fetch, Remote Config, then a plain cloud call on the app's model
+  (<code>gemini-3.8-flash</code>) and on <code>gemini-2.5-flash</code>.
+  Tokens are never printed — only their length.
+</p>
+<pre id="log">starting…</pre>
+
+<script src="firebase-config.js"></script>
+<script type="module">
+"use strict";
+
+// Same SDK line and CDN as docs/hybrid-ai.js.
+const SDK_VERSION = "12.5.0";
+const CDN = `https://www.gstatic.com/firebasejs/${SDK_VERSION}/`;
+
+// Cloud model name configured in docs/hybrid-ai.js (CLOUD_MODEL).
+const APP_MODEL = "gemini-3.8-flash";
+const ALT_MODEL = "gemini-2.5-flash";
+
+const logEl = document.getElementById("log");
+logEl.textContent = "";
+const t0 = performance.now();
+let sdkReportedVersion = "n/a";
+
+function stamp() {
+  return "[+" + String(Math.round(performance.now() - t0)).padStart(6, "0") + "ms]";
+}
+function log(line) {
+  logEl.textContent += stamp() + " " + line + "\n";
+  try { console.log(line); } catch (e) { /* ignore */ }
+}
+
+function fmtErr(e) {
+  const code = e && e.code ? String(e.code) : "(no code)";
+  const msg = e && e.message ? String(e.message) : String(e);
+  return ("code=" + code + " message=" + msg).slice(0, 300);
+}
+
+window.addEventListener("unhandledrejection", (ev) => {
+  log("unhandled rejection (async): " + fmtErr(ev && ev.reason));
+});
+
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => {
+        const err = new Error("no settle within " + ms + "ms");
+        err.diagTimeout = true;
+        reject(err);
+      }, ms)
+    ),
+  ]);
+}
+
+let app = null; // set by stage 1, reused by stages 2–5
+
+async function runStage(n, name, timeoutMs, fn) {
+  log("stage " + n + " start: " + name + " (timeout " + timeoutMs + "ms)");
+  const start = performance.now();
+  try {
+    const detail = await withTimeout(fn(), timeoutMs);
+    const dur = Math.round(performance.now() - start);
+    log("stage " + n + " OK in " + dur + "ms: " + detail);
+  } catch (e) {
+    const dur = Math.round(performance.now() - start);
+    if (e && e.diagTimeout) {
+      log("stage " + n + " HANG after " + dur + "ms: " + name + " never settled");
+    } else {
+      log("stage " + n + " FAIL after " + dur + "ms: " + fmtErr(e));
+    }
+  }
+}
+
+function requireApp() {
+  if (!app) throw new Error("firebase app not initialized (see stage 1)");
+  return app;
+}
+
+async function runDiag() {
+  const cfg = window.PANTRYPILOT_FIREBASE_CONFIG;
+  if (!cfg) {
+    log("FATAL: window.PANTRYPILOT_FIREBASE_CONFIG missing — firebase-config.js did not load");
+    log("DIAG DONE");
+    return;
+  }
+  log("diag start: project " + cfg.projectId + ", SDK CDN " + CDN);
+
+  // Stage 1 — Firebase app init + anonymous sign-in (20s).
+  await runStage(1, "firebase app init + anonymous sign-in", 20000, async () => {
+    const [appMod, authMod] = await Promise.all([
+      import(CDN + "firebase-app.js"),
+      import(CDN + "firebase-auth.js"),
+    ]);
+    if (appMod.SDK_VERSION) sdkReportedVersion = String(appMod.SDK_VERSION);
+    app = appMod.initializeApp(cfg);
+    const auth = authMod.getAuth(app);
+    const cred = await authMod.signInAnonymously(auth);
+    return "app initialized; signed in anonymously (uid length " +
+      (cred.user && cred.user.uid ? cred.user.uid.length : 0) + ")";
+  });
+
+  // Stage 2 — App Check getToken() with the app's provider setup (30s).
+  let appCheck = null;
+  await runStage(2, "app check getToken (ReCaptchaEnterpriseProvider)", 30000, async () => {
+    requireApp();
+    const appCheckMod = await import(CDN + "firebase-app-check.js");
+    appCheck = appCheckMod.initializeAppCheck(app, {
+      provider: new appCheckMod.ReCaptchaEnterpriseProvider(cfg.appCheckSiteKey),
+      isTokenAutoRefreshEnabled: true,
+    });
+    const result = await appCheckMod.getToken(appCheck);
+    const token = result && result.token ? String(result.token) : "";
+    return "token received, length " + token.length; // never print the token itself
+  });
+
+  // Stage 3 — Remote Config fetchAndActivate, same settings as the app (20s).
+  await runStage(3, "remote config fetchAndActivate", 20000, async () => {
+    requireApp();
+    const rcMod = await import(CDN + "firebase-remote-config.js");
+    const rc = rcMod.getRemoteConfig(app);
+    rc.settings.minimumFetchIntervalMillis = 60 * 1000;
+    rc.defaultConfig = { rescue_threshold_days: 7, default_inference_mode: "PREFER_ON_DEVICE" };
+    const activated = await rcMod.fetchAndActivate(rc);
+    return "activated=" + activated +
+      ", rescue_threshold_days=" + rcMod.getNumber(rc, "rescue_threshold_days") +
+      ", default_inference_mode=" + rcMod.getString(rc, "default_inference_mode");
+  });
+
+  // Stages 4–5 — plain cloud-only generateContent, one model each (60s).
+  async function cloudCallStage(n, modelName) {
+    await runStage(n, "cloud generateContent model=" + modelName, 60000, async () => {
+      requireApp();
+      const aiMod = await import(CDN + "firebase-ai.js");
+      const ai = aiMod.getAI(app, { backend: new aiMod.GoogleAIBackend() });
+      const model = aiMod.getGenerativeModel(ai, { model: modelName });
+      const result = await model.generateContent("Reply with exactly: OK");
+      const text = result && result.response ? String(result.response.text()) : "";
+      return "reply: " + JSON.stringify(text.slice(0, 120));
+    });
+  }
+  await cloudCallStage(4, APP_MODEL);
+  await cloudCallStage(5, ALT_MODEL);
+
+  log("DIAG DONE");
+  log("SDK version used: " + SDK_VERSION + " (CDN " + CDN + "; module reports " + sdkReportedVersion + ")");
+}
+
+runDiag().catch((e) => {
+  log("DIAG CRASH: " + fmtErr(e));
+  log("DIAG DONE");
+});
+</script>
+</body>
+</html>
