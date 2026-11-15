@@ -238,7 +238,21 @@ export async function planWithHybridAI(prompt, modeName, onProgress) {
   if (!state.configured) throw new Error("Firebase AI Logic is not configured.");
   const { model, sourceOverride } = await getHybridModel(modeName, onProgress);
   const t0 = performance.now();
-  const result = await model.generateContent(prompt);
+  // The free-tier cloud model can return transient 5xx "high demand"
+  // spikes (seen live 2026-11-15 on gemini-3.8-flash); retry those a
+  // few times with backoff before the UI falls back to local preview.
+  let result = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      result = await model.generateContent(prompt);
+      break;
+    } catch (e) {
+      const msg = String(e && e.message ? e.message : e);
+      const transient = /\b(500|502|503|504)\b/.test(msg) || /high demand|overloaded|try again later/i.test(msg);
+      if (!transient || attempt === 2) throw e;
+      await new Promise((r) => setTimeout(r, attempt === 0 ? 2500 : 6000));
+    }
+  }
   const latencyMs = Math.round(performance.now() - t0);
   const text = result.response.text();
   let plan;
