@@ -89,12 +89,12 @@ export async function initHybridAI(onStatus) {
         isTokenAutoRefreshEnabled: true
       });
     } else {
-      self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+      self.FIREBASE_APPCHECK_DEBUG_TOKEN = "fcc1ce5b-27d4-4444-8560-97ef78e04ddf";
       appCheckMod.initializeAppCheck(state.app, {
         provider: new appCheckMod.ReCaptchaV3Provider("pantrypilot-debug-placeholder"),
         isTokenAutoRefreshEnabled: true
       });
-      onStatus && onStatus("App Check: debug token mode — register the token from the browser console in the Firebase console (App Check > Manage debug tokens).");
+      onStatus && onStatus("App Check: fixed debug token mode (token in code, registered in Firebase console for this demo project).");
     }
   } catch (e) {
     onStatus && onStatus("App Check init skipped: " + e.message);
