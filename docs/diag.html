@@ -15,13 +15,15 @@
 <body>
 <h1>PantryPilot — AI pipeline diagnostics</h1>
 <p>
-  Auto-runs on load. Round 2 (2026-11-16): each stage of the Firebase AI
-  Logic request pipeline is timed separately, with its own timeout — app
-  init + auth, the App Check token fetch, Remote Config — then a plain
-  cloud call on four candidate models in turn:
-  <code>gemini-3.5-flash-lite</code>, <code>gemini-3.5-flash</code>,
-  <code>gemini-3.7-flash</code>, and the app's current model
-  <code>gemini-3.8-flash</code> as control (it hung server-side in round 1).
+  Auto-runs on load. Round 3 (2026-11-16): stages 1–3 check the pipeline
+  (app init + auth, App Check token, Remote Config); stages 4–7 are the
+  round-2 plain-call model matrix (<code>gemini-3.5-flash-lite</code>,
+  <code>gemini-3.5-flash</code>, <code>gemini-3.7-flash</code>,
+  <code>gemini-3.8-flash</code> control). Stages 8–9 replicate the app's
+  EXACT rescue-plan call — same response schema, same JSON generation
+  config, a realistic rescue prompt — on <code>gemini-3.5-flash</code>
+  and <code>gemini-3.5-flash-lite</code>, and print the raw reply so a
+  "model did not return JSON" failure can be diagnosed.
   Tokens are never printed — only their length.
 </p>
 <pre id="log">starting…</pre>
@@ -168,6 +170,64 @@ async function runDiag() {
   for (let i = 0; i < CANDIDATE_MODELS.length; i++) {
     await cloudCallStage(4 + i, CANDIDATE_MODELS[i]);
   }
+
+  // Stages 8–9 — the app's EXACT call: same schema + JSON generation
+  // config as docs/hybrid-ai.js (planSchema + cloudGenerationConfig),
+  // prompt shaped like PantryEngine.buildRescuePrompt output. Prints
+  // the raw reply (first 500 chars) and whether JSON.parse succeeds.
+  const RESCUE_PROMPT = [
+    "You are a home cook helping me waste less food. These ingredients in my kitchen need rescuing, most urgent first:",
+    "- chicken breast (1 pcs, produce) — expires in 1 day(s)",
+    "- fresh milk (1 pcs, dairy) — expires TODAY",
+    "",
+    "Create ONE practical dinner plan for 2 people that uses as many of the urgent items as possible.",
+    "Prefer simple techniques (one pan, one pot, oven tray). Do not invent ingredients I did not list,",
+    "except basic staples (oil, salt, pepper, garlic, onion, rice, flour). If an item is expired and not",
+    "shelf-stable, exclude it from the meal and mention discarding it in the summary.",
+    "Respond with JSON only, matching the provided schema."
+  ].join("\n");
+
+  async function appCallStage(n, modelName) {
+    await runStage(n, "app-exact call model=" + modelName + " (schema+JSON config)", 60000, async () => {
+      requireApp();
+      const aiMod = await import(CDN + "firebase-ai.js");
+      const ai = aiMod.getAI(app, { backend: new aiMod.GoogleAIBackend() });
+      const S = aiMod.Schema;
+      const schema = S.object({
+        properties: {
+          title: S.string(),
+          summary: S.string(),
+          steps: S.array({ items: S.string() }),
+          usesItems: S.array({ items: S.string() }),
+          missingItems: S.array({ items: S.string() }),
+          timeMinutes: S.number(),
+          servings: S.number()
+        }
+      });
+      const model = aiMod.getGenerativeModel(ai, {
+        model: modelName,
+        generationConfig: {
+          responseMimeType: "application/json",
+          responseSchema: schema,
+          temperature: 0.6,
+          maxOutputTokens: 1024
+        }
+      });
+      const result = await model.generateContent(RESCUE_PROMPT);
+      const resp = result && result.response;
+      const cand = resp && resp.candidates && resp.candidates[0];
+      const finish = cand && cand.finishReason ? String(cand.finishReason) : "(none)";
+      let text = "";
+      try { text = resp ? String(resp.text()) : ""; } catch (e) { text = "(text() threw: " + fmtErr(e) + ")"; }
+      let parse = "n/a";
+      try { JSON.parse(text); parse = "JSON.parse OK"; }
+      catch (e) { parse = "JSON.parse FAIL (" + String(e && e.message).slice(0, 80) + ")"; }
+      return "finishReason=" + finish + ", textLength=" + text.length + ", " + parse +
+        ", raw start: " + JSON.stringify(text.slice(0, 500));
+    });
+  }
+  await appCallStage(8, "gemini-3.5-flash");
+  await appCallStage(9, "gemini-3.5-flash-lite");
 
   log("DIAG DONE");
   log("SDK version used: " + SDK_VERSION + " (CDN " + CDN + "; module reports " + sdkReportedVersion + ")");
