@@ -15,11 +15,13 @@
 <body>
 <h1>PantryPilot — AI pipeline diagnostics</h1>
 <p>
-  Auto-runs on load. Each stage of the Firebase AI Logic request pipeline is
-  timed separately, with its own timeout, to isolate where a
-  <code>generateContent()</code> call hangs: app init + auth, the App Check
-  token fetch, Remote Config, then a plain cloud call on the app's model
-  (<code>gemini-3.8-flash</code>) and on <code>gemini-2.5-flash</code>.
+  Auto-runs on load. Round 2 (2026-11-16): each stage of the Firebase AI
+  Logic request pipeline is timed separately, with its own timeout — app
+  init + auth, the App Check token fetch, Remote Config — then a plain
+  cloud call on four candidate models in turn:
+  <code>gemini-3.5-flash-lite</code>, <code>gemini-3.5-flash</code>,
+  <code>gemini-3.7-flash</code>, and the app's current model
+  <code>gemini-3.8-flash</code> as control (it hung server-side in round 1).
   Tokens are never printed — only their length.
 </p>
 <pre id="log">starting…</pre>
@@ -32,9 +34,14 @@
 const SDK_VERSION = "12.5.0";
 const CDN = `https://www.gstatic.com/firebasejs/${SDK_VERSION}/`;
 
-// Cloud model name configured in docs/hybrid-ai.js (CLOUD_MODEL).
-const APP_MODEL = "gemini-3.8-flash";
-const ALT_MODEL = "gemini-2.5-flash";
+// Round-2 model matrix: candidates first, the app's current model
+// (docs/hybrid-ai.js CLOUD_MODEL) last as the control.
+const CANDIDATE_MODELS = [
+  "gemini-3.5-flash-lite",
+  "gemini-3.5-flash",
+  "gemini-3.7-flash",
+  "gemini-3.8-flash",
+];
 
 const logEl = document.getElementById("log");
 logEl.textContent = "";
@@ -146,9 +153,9 @@ async function runDiag() {
       ", default_inference_mode=" + rcMod.getString(rc, "default_inference_mode");
   });
 
-  // Stages 4–5 — plain cloud-only generateContent, one model each (60s).
+  // Stages 4–7 — plain cloud-only generateContent, one model each (45s).
   async function cloudCallStage(n, modelName) {
-    await runStage(n, "cloud generateContent model=" + modelName, 60000, async () => {
+    await runStage(n, "cloud generateContent model=" + modelName, 45000, async () => {
       requireApp();
       const aiMod = await import(CDN + "firebase-ai.js");
       const ai = aiMod.getAI(app, { backend: new aiMod.GoogleAIBackend() });
@@ -158,8 +165,9 @@ async function runDiag() {
       return "reply: " + JSON.stringify(text.slice(0, 120));
     });
   }
-  await cloudCallStage(4, APP_MODEL);
-  await cloudCallStage(5, ALT_MODEL);
+  for (let i = 0; i < CANDIDATE_MODELS.length; i++) {
+    await cloudCallStage(4 + i, CANDIDATE_MODELS[i]);
+  }
 
   log("DIAG DONE");
   log("SDK version used: " + SDK_VERSION + " (CDN " + CDN + "; module reports " + sdkReportedVersion + ")");
