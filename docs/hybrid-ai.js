@@ -163,17 +163,17 @@ function planSchema(Schema) {
 // generateContent on gemini-3.8-flash — and gemini-3.7-flash — hangs
 // server-side for this project (never settles, 3 separate runs), while
 // gemini-3.5-flash answered in ~2.1s and gemini-3.5-flash-lite in
-// ~3.4s. The full 3.5 Flash is the working, stronger model, so it is
-// now the cloud model. Round 3 of the diagnostics then showed WHY the
-// first badge test still failed on 3.5 Flash: with the app's schema
-// call the model spent the 1024-token output budget on hidden
-// reasoning and returned a 106-character JSON stub
-// (finishReason=MAX_TOKENS) — on the app's longer real prompt it
-// returned nothing at all. Hence the raised maxOutputTokens in
-// cloudGenerationConfig below; the lite model completed the same
-// call within budget (finishReason=STOP, valid JSON) and remains the
-// fallback if the full model misbehaves again.
-const CLOUD_MODEL = "gemini-3.5-flash";
+// ~3.4s. Round 3 of the diagnostics then showed WHY the first badge
+// test still failed on 3.5 Flash: with the app's schema call the
+// model spent the 1024-token output budget on hidden reasoning and
+// returned a 106-character JSON stub (finishReason=MAX_TOKENS) — on
+// the app's longer real prompt it returned nothing at all. Raising
+// maxOutputTokens to 8192 (see cloudGenerationConfig below) was
+// tried next, but the live badge retest on 2026-11-16 still failed
+// twice with "Model did not return JSON." The lite model completed
+// the exact app call in round 3 within budget (finishReason=STOP,
+// valid JSON, ~1.9s), so the lite model is now the cloud model.
+const CLOUD_MODEL = "gemini-3.5-flash-lite";
 
 async function getHybridModel(modeName, onProgress) {
   const { aiMod } = state.mods;
