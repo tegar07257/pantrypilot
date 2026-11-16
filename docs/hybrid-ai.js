@@ -164,7 +164,15 @@ function planSchema(Schema) {
 // server-side for this project (never settles, 3 separate runs), while
 // gemini-3.5-flash answered in ~2.1s and gemini-3.5-flash-lite in
 // ~3.4s. The full 3.5 Flash is the working, stronger model, so it is
-// now the cloud model.
+// now the cloud model. Round 3 of the diagnostics then showed WHY the
+// first badge test still failed on 3.5 Flash: with the app's schema
+// call the model spent the 1024-token output budget on hidden
+// reasoning and returned a 106-character JSON stub
+// (finishReason=MAX_TOKENS) — on the app's longer real prompt it
+// returned nothing at all. Hence the raised maxOutputTokens in
+// cloudGenerationConfig below; the lite model completed the same
+// call within budget (finishReason=STOP, valid JSON) and remains the
+// fallback if the full model misbehaves again.
 const CLOUD_MODEL = "gemini-3.5-flash";
 
 async function getHybridModel(modeName, onProgress) {
@@ -176,7 +184,12 @@ async function getHybridModel(modeName, onProgress) {
     responseMimeType: "application/json",
     responseSchema: schema,
     temperature: 0.6,
-    maxOutputTokens: 1024
+    // 8192, not 1024: diag round 3 (2026-11-16) caught gemini-3.5-flash
+    // truncating the plan JSON at 106 chars with finishReason
+    // MAX_TOKENS under a 1024 budget — the budget is shared with the
+    // model's hidden reasoning tokens, so the visible JSON needs far
+    // more headroom than the plan's own ~1-2k tokens.
+    maxOutputTokens: 8192
   };
 
   // "Cloud first" uses a plain cloud-only model — no hybrid routing —
