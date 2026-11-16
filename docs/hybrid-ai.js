@@ -158,8 +158,14 @@ function planSchema(Schema) {
  */
 // Cloud model name. NOTE (2026-11-15): the API retired
 // gemini-2.5-flash for new users (404 "no longer available to new
-// users — use models/gemini-3.8-flash"), so 3.8 Flash it is.
-const CLOUD_MODEL = "gemini-3.8-flash";
+// users — use models/gemini-3.8-flash"), so 3.8 Flash it was.
+// UPDATE (2026-11-16): staged diagnostics (docs/diag.html) proved
+// generateContent on gemini-3.8-flash — and gemini-3.7-flash — hangs
+// server-side for this project (never settles, 3 separate runs), while
+// gemini-3.5-flash answered in ~2.1s and gemini-3.5-flash-lite in
+// ~3.4s. The full 3.5 Flash is the working, stronger model, so it is
+// now the cloud model.
+const CLOUD_MODEL = "gemini-3.5-flash";
 
 async function getHybridModel(modeName, onProgress) {
   const { aiMod } = state.mods;
